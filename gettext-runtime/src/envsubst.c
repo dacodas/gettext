@@ -475,105 +475,139 @@ subst_from_stdin ()
   for (;;)
     {
       c = do_getc ();
+
+      bool replace_env_var = false;
+      bool replace_file = false;
+
       if (c == EOF)
         break;
       /* Look for $VARIABLE or ${VARIABLE}.  */
       if (c == '$')
-        {
-          bool opening_brace = false;
-          bool closing_brace = false;
+      {
+        replace_env_var = true;
+        goto inner_loop;
+      }
 
-          c = do_getc ();
-          if (c == '{')
-            {
-              opening_brace = true;
-              c = do_getc ();
-            }
-          if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_')
-            {
-              bool valid;
+      if (c == '%')
+      {
+        replace_file = true;
+        goto inner_loop;
+      }
 
-              /* Accumulate the VARIABLE in buffer.  */
-              buflen = 0;
-              do
-                {
-                  if (buflen >= bufmax)
-                    {
-                      bufmax = 2 * bufmax + 10;
-                      buffer = xrealloc (buffer, bufmax);
-                    }
-                  buffer[buflen++] = c;
+      putchar (c);
+      continue;
 
-                  c = do_getc ();
-                }
-              while ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
-                     || (c >= '0' && c <= '9') || c == '_');
+inner_loop:
+      {
+        bool opening_brace = false;
+        bool closing_brace = false;
+        c = do_getc ();
+        if (c == '{')
+          {
+            opening_brace = true;
+            c = do_getc ();
+          }
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_')
+          {
+            bool valid;
 
-              if (opening_brace)
-                {
-                  if (c == '}')
-                    {
-                      closing_brace = true;
-                      valid = true;
-                    }
-                  else
-                    {
-                      valid = false;
-                      do_ungetc (c);
-                    }
-                }
-              else
-                {
-                  valid = true;
-                  do_ungetc (c);
-                }
+            /* Accumulate the VARIABLE in buffer.  */
+            buflen = 0;
+            do
+              {
+                if (buflen >= bufmax)
+                  {
+                    bufmax = 2 * bufmax + 10;
+                    buffer = xrealloc (buffer, bufmax);
+                  }
+                buffer[buflen++] = c;
 
-              if (valid)
-                {
-                  /* Terminate the variable in the buffer.  */
-                  if (buflen >= bufmax)
-                    {
-                      bufmax = 2 * bufmax + 10;
-                      buffer = xrealloc (buffer, bufmax);
-                    }
-                  buffer[buflen] = '\0';
+                c = do_getc ();
+              }
+            while ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                   || (c >= '0' && c <= '9') || c == '_');
 
-                  /* Test whether the variable shall be substituted.  */
-                  if (!all_variables
-                      && !sorted_string_list_member (&variables_set, buffer))
+            if (opening_brace)
+              {
+                if (c == '}')
+                  {
+                    closing_brace = true;
+                    valid = true;
+                  }
+                else
+                  {
                     valid = false;
-                }
+                    do_ungetc (c);
+                  }
+              }
+            else
+              {
+                valid = true;
+                do_ungetc (c);
+              }
 
-              if (valid)
+            if (valid)
+              {
+                /* Terminate the variable in the buffer.  */
+                if (buflen >= bufmax)
+                  {
+                    bufmax = 2 * bufmax + 10;
+                    buffer = xrealloc (buffer, bufmax);
+                  }
+                buffer[buflen] = '\0';
+
+                /* Test whether the variable shall be substituted.  */
+                if (!all_variables
+                    && !sorted_string_list_member (&variables_set, buffer))
+                  valid = false;
+              }
+
+            if (valid)
+              {
+                /* Substitute the variable's value from the environment.  */
+                const char *env_value = getenv (buffer);
+
+                if (env_value != NULL)
                 {
-                  /* Substitute the variable's value from the environment.  */
-                  const char *env_value = getenv (buffer);
-
-                  if (env_value != NULL)
+                  if (replace_env_var)
+                  {
                     fputs (env_value, stdout);
+                  }
+
+                  if (replace_file)
+                  {
+                    FILE *f = fopen(env_value, "rb");
+                    fseek(f, 0, SEEK_END);
+                    long fsize = ftell(f);
+                    fseek(f, 0, SEEK_SET);
+
+                    char *string = malloc(fsize + 1);
+                    fread(string, 1, fsize, f);
+
+                    fputs(string, stdout);
+                  }
                 }
-              else
-                {
-                  /* Perform no substitution at all.  Since the buffered input
-                     contains no other '$' than at the start, we can just
-                     output all the buffered contents.  */
-                  putchar ('$');
-                  if (opening_brace)
-                    putchar ('{');
-                  fwrite (buffer, buflen, 1, stdout);
-                  if (closing_brace)
-                    putchar ('}');
-                }
-            }
-          else
-            {
-              do_ungetc (c);
-              putchar ('$');
-              if (opening_brace)
-                putchar ('{');
-            }
-        }
-      else
-        putchar (c);
+              }
+            else
+              {
+                /* Perform no substitution at all.  Since the buffered input
+                   contains no other '$' than at the start, we can just
+                   output all the buffered contents.  */
+                putchar ( replace_env_var ? '$' : '%' );
+                if (opening_brace)
+                  putchar ('{');
+                fwrite (buffer, buflen, 1, stdout);
+                if (closing_brace)
+                  putchar ('}');
+              }
+          }
+        else
+          {
+            do_ungetc (c);
+            putchar ( replace_env_var ? '$' : '%' );
+            if (opening_brace)
+              putchar ('{');
+          }
+      }
     }
 }

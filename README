@@ -1,3 +1,8 @@
+This is a silly fork of GNU gettext which allows for the use of a
+`%{VARIABLE}` syntax in addition to the standard `${VARIABLE}`
+syntax. Using the `%` tells `envsubst` to insert the contents of the
+file referenced by the shell variable VARIABLE.
+
 This is the GNU gettext package.  It is interesting for authors or
 maintainers of other packages or programs which they want to see
 internationalized.  As one step the handling of messages in different
